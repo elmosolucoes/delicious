@@ -456,7 +456,6 @@
                     <label for="creativeType">Tipo de Criativo:</label>
                     <select id="creativeType" class="input-control">
                         <option value="static">Estático (Imagem)</option>
-                        <option value="cinematic" id="cinematicOption">Cinematográfico (Vídeo 15s)</option>
                         <option value="both">Ambos</option>
                     </select>
                 </div>
@@ -483,7 +482,7 @@
                         </div>
                         <div class="result-info">
                             <div class="result-title">Exemplo de Criativo</div>
-                            <div class="result-type">Vídeo Cinematográfico</div>
+                            <div class="result-type">Imagem Estática</div>
                         </div>
                     </div>
                     
@@ -528,7 +527,7 @@
         
         <footer>
             <p>© 2025 FoodVision AI - Transformando alimentos em experiências visuais</p>
-            <p>Conectado à API Alibaba Cloud • Tecnologia de IA Avançada</p>
+            <p>Conectado à API da Stable Diffusion XL • Tecnologia de IA Avançada</p>
         </footer>
     </div>
 
@@ -566,7 +565,6 @@
         const userGreeting = document.getElementById('userGreeting');
         const upgradePrompt = document.getElementById('upgradePrompt');
         const upgradeBtn = document.getElementById('upgradeBtn');
-        const cinematicOption = document.getElementById('cinematicOption');
 
         // Variáveis de controle
         let currentUserData = null;
@@ -633,21 +631,12 @@
                     generateBtn.classList.add('btn');
                     generateBtn.innerHTML = `<i class="fas fa-magic"></i> Gerar (Créditos restantes: ${currentUserData.credits})`;
                 }
-                
-                // Desabilitar opção de vídeo para plano gratuito
-                cinematicOption.disabled = true;
-                if (creativeType.value === 'cinematic') {
-                    creativeType.value = 'static';
-                }
             } else if (currentUserData.plan === 'basic') {
                 upgradePrompt.style.display = 'none';
                 generateBtn.disabled = false;
                 generateBtn.classList.remove('btn-outline');
                 generateBtn.classList.add('btn');
                 generateBtn.innerHTML = '<i class="fas fa-magic"></i> Gerar Criativo com IA';
-                
-                // Habilitar opção de vídeo para plano básico
-                cinematicOption.disabled = false;
             }
         }
 
@@ -765,7 +754,7 @@
             }
         }
         
-        // Função de geração de criativo (chama a API da Hugging Face diretamente)
+        // Função de geração de criativo (chama a API da Stable Diffusion XL)
         generateBtn.addEventListener('click', async () => {
             const user = auth.currentUser;
             if (!user) {
@@ -797,12 +786,6 @@
                     alert('Você atingiu o limite de testes gratuitos. Faça upgrade para continuar.');
                     return;
                 }
-                
-                // Plano gratuito só pode gerar imagens estáticas
-                if (type === 'cinematic') {
-                    alert('Vídeos cinematográficos estão disponíveis apenas no plano Básico.');
-                    return;
-                }
             }
             
             // Mostrar loading
@@ -811,12 +794,15 @@
             
             try {
                 const apiKey = "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"; // Substitua por sua chave real
-                let result = { image_url: null, video_url: null };
+                let result = { image_url: null };
 
                 if (type === 'static' || type === 'both') {
-                    console.log("Iniciando geração de imagem com o modelo: runwayml/stable-diffusion-v1-5");
-                    const imageModelUrl = "https://router.huggingface.co/openai/runwayml/stable-diffusion-v1-5";
+                    console.log("Iniciando geração de imagem com o modelo: stabilityai/stable-diffusion-xl-base-1.0");
+                    const imageModelUrl = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0";
 
+                    // Criar prompt otimizado para SDXL com base na descrição do produto
+                    const optimizedPrompt = `Photorealistic image of ${description}, studio lighting, high contrast, ultra-detailed textures, 8K resolution, cinematic realism, professional food photography, commercial quality`;
+                    
                     const imageResponse = await fetch(imageModelUrl, {
                         method: 'POST',
                         headers: {
@@ -824,7 +810,10 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            inputs: description // O prompt vai aqui
+                            inputs: optimizedPrompt,
+                            options: {
+                                wait_for_model: true
+                            }
                         })
                     });
 
@@ -836,47 +825,6 @@
                     const imageBlob = await imageResponse.blob();
                     result.image_url = URL.createObjectURL(imageBlob);
                     console.log("Imagem gerada com sucesso.");
-                }
-
-                if (type === 'cinematic' || type === 'both') {
-                    console.log("Iniciando geração de vídeo com o modelo: stabilityai/stable-video-diffusion-img2vid-xt");
-                    const videoModelUrl = "https://router.huggingface.co/openai/stabilityai/stable-video-diffusion-img2vid-xt";
-
-                    const imageFile = fileInput.files[0];
-                    if (!imageFile) {
-                        throw new Error("Nenhuma imagem selecionada para gerar vídeo.");
-                    }
-
-                    // Lê a imagem como ArrayBuffer
-                    const imageArrayBuffer = await imageFile.arrayBuffer();
-
-                    // Envia a imagem como ArrayBuffer
-                    // A maioria dos modelos IMG2VID não aceita prompt textual como SD faz.
-                    // A imagem é a entrada principal.
-                    const videoResponse = await fetch(videoModelUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/octet-stream', // Envia como binário
-                        },
-                        body: imageArrayBuffer // Envia a imagem como ArrayBuffer
-                    });
-
-                    if (!videoResponse.ok) {
-                        const errorText = await videoResponse.text();
-                        throw new Error(`Erro na geração do vídeo: ${videoResponse.status} - ${errorText}`);
-                    }
-
-                    // A resposta para vídeo é um array de frames em base64
-                    const videoData = await videoResponse.json();
-                    console.log("Dados do vídeo recebidos:", videoData);
-
-                    // ATENÇÃO: Este modelo retorna um array de frames, não um vídeo pronto.
-                    // O navegador não sabe como montar um vídeo a partir de um array de frames base64 recebidos diretamente.
-                    // Apenas para demonstrar que o modelo foi chamado, mostraremos um alerta.
-                    // Para exibir o vídeo, você precisaria de um backend para processar os frames.
-                    alert("Vídeo gerado com sucesso (mas não pode ser exibido diretamente do navegador sem um backend).");
-
                 }
 
                 // Exibir resultados reais
@@ -900,7 +848,7 @@
             }
         });
         
-        // Função para exibir resultados reais da Hugging Face
+        // Função para exibir resultados reais da Stable Diffusion XL
         function displayResult(result, type) {
             resultsContainer.innerHTML = '';
 
@@ -912,14 +860,12 @@
                         <img src="${result.image_url}" class="result-image" alt="Imagem gerada">
                         <div class="result-info">
                             <div class="result-title">Imagem Estática</div>
-                            <div class="result-type">Gerada com IA</div>
+                            <div class="result-type">Gerada com Stable Diffusion XL</div>
                         </div>
                     `;
                     resultsContainer.appendChild(imageCard);
                 }
             }
-            // A geração de vídeo não é exibida diretamente por limitações do navegador
-            // sem um backend para processar os frames.
         }
 
         // Evento para botão de upgrade
@@ -933,4 +879,4 @@
     </script>
 </body>
 </html>
-```
+
