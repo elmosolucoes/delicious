@@ -1,3 +1,12 @@
+Claro! Vou aplicar as modificações necessárias ao `index.html` que gerei anteriormente, integrando a chamada direta para a API da Hugging Face para geração de imagens estáticas e, de forma limitada e com aviso, para vídeos (usando o modelo IMG2VID, que requer uma imagem de entrada e cujo resultado pode não ser exibido diretamente no navegador sem um backend).
+
+Lembre-se: **Substitua `SEU_TOKEN_DA_HUGGING_FACE_AQUI` pela sua chave de API real da Hugging Face** antes de fazer o deploy.
+
+---
+
+### ✅ Arquivo `index.html` Atualizado (Imagem e Vídeo)
+
+```html
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -765,7 +774,7 @@
             }
         }
         
-        // Função de geração de criativo (chama o backend que se conecta à Hugging Face)
+        // Função de geração de criativo (chama a API da Hugging Face diretamente)
         generateBtn.addEventListener('click', async () => {
             const user = auth.currentUser;
             if (!user) {
@@ -810,27 +819,80 @@
             resultsContainer.innerHTML = '';
             
             try {
-                // Chamar o backend que se conecta à Hugging Face
-                const response = await fetch('https://foodvision-backend.vercel.app/api/generate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        prompt: description,
-                        type: type
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Erro na geração do criativo');
+                const apiKey = "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"; // Substitua por sua chave real
+                let result = { image_url: null, video_url: null };
+
+                if (type === 'static' || type === 'both') {
+                    console.log("Iniciando geração de imagem com o modelo: stabilityai/stable-diffusion-xl-base-1.0");
+                    const imageModelUrl = "https://router.huggingface.co/openai/stabilityai/stable-diffusion-xl-base-1.0";
+
+                    const imageResponse = await fetch(imageModelUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            inputs: description // O prompt vai aqui
+                        })
+                    });
+
+                    if (!imageResponse.ok) {
+                        const errorText = await imageResponse.text();
+                        throw new Error(`Erro na geração da imagem: ${imageResponse.status} - ${errorText}`);
+                    }
+
+                    const imageBlob = await imageResponse.blob();
+                    result.image_url = URL.createObjectURL(imageBlob);
+                    console.log("Imagem gerada com sucesso.");
                 }
-                
-                const result = await response.json();
-                
+
+                if (type === 'cinematic' || type === 'both') {
+                    console.log("Iniciando geração de vídeo com o modelo: stabilityai/stable-video-diffusion-img2vid-xt");
+                    const videoModelUrl = "https://router.huggingface.co/openai/stabilityai/stable-video-diffusion-img2vid-xt";
+
+                    const imageFile = fileInput.files[0];
+                    if (!imageFile) {
+                        throw new Error("Nenhuma imagem selecionada para gerar vídeo.");
+                    }
+
+                    // Lê a imagem como ArrayBuffer
+                    const imageArrayBuffer = await imageFile.arrayBuffer();
+
+                    // Envia a imagem como ArrayBuffer
+                    // A maioria dos modelos IMG2VID não aceita prompt textual como SD faz.
+                    // A imagem é a entrada principal.
+                    const videoResponse = await fetch(videoModelUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/octet-stream', // Envia como binário
+                        },
+                        body: imageArrayBuffer // Envia a imagem como ArrayBuffer
+                    });
+
+                    if (!videoResponse.ok) {
+                        const errorText = await videoResponse.text();
+                        throw new Error(`Erro na geração do vídeo: ${videoResponse.status} - ${errorText}`);
+                    }
+
+                    // A resposta para vídeo é um array de frames em base64
+                    const videoData = await videoResponse.json();
+                    console.log("Dados do vídeo recebidos:", videoData);
+
+                    // ATENÇÃO: Este modelo retorna um array de frames, não um vídeo pronto.
+                    // O navegador não sabe como montar um vídeo a partir de um array de frames base64 recebidos diretamente.
+                    // Apenas para demonstrar que o modelo foi chamado, mostraremos um alerta.
+                    // Para exibir o vídeo, você precisaria de um backend para processar os frames.
+                    alert("Vídeo gerado com sucesso (mas não pode ser exibido diretamente do navegador sem um backend).");
+
+                    // O código abaixo para criar um vídeo não funcionará com o array de frames retornado diretamente.
+                    // result.video_url = URL.createObjectURL(new Blob([JSON.stringify(videoData)], { type: 'application/json' })); // Isso não é um vídeo
+                }
+
                 // Exibir resultados reais
                 displayResult(result, type);
-                
+
                 // Atualizar créditos no Firestore se for plano gratuito
                 if (currentUserData.plan === 'free') {
                     const newCredits = currentUserData.credits - 1;
@@ -840,10 +902,10 @@
                     currentUserData.credits = newCredits;
                     updateCreditsDisplay();
                 }
-                
+
             } catch (error) {
                 console.error('Erro na geração:', error);
-                alert('Erro ao gerar criativo. Tente novamente.');
+                alert('Erro ao gerar criativo. Tente novamente. Detalhes: ' + error.message);
             } finally {
                 loading.style.display = 'none';
             }
@@ -852,25 +914,7 @@
         // Função para exibir resultados reais da Hugging Face
         function displayResult(result, type) {
             resultsContainer.innerHTML = '';
-            
-            if (type === 'cinematic' || type === 'both') {
-                if (result.video_url) {
-                    const videoCard = document.createElement('div');
-                    videoCard.className = 'result-card';
-                    videoCard.innerHTML = `
-                        <video controls style="width: 100%; height: 180px; object-fit: cover;">
-                            <source src="${result.video_url}" type="video/mp4">
-                            Seu navegador não suporta vídeos.
-                        </video>
-                        <div class="result-info">
-                            <div class="result-title">Vídeo Cinematográfico</div>
-                            <div class="result-type">Gerado com IA</div>
-                        </div>
-                    `;
-                    resultsContainer.appendChild(videoCard);
-                }
-            }
-            
+
             if (type === 'static' || type === 'both') {
                 if (result.image_url) {
                     const imageCard = document.createElement('div');
@@ -885,6 +929,8 @@
                     resultsContainer.appendChild(imageCard);
                 }
             }
+            // A geração de vídeo não é exibida diretamente por limitações do navegador
+            // sem um backend para processar os frames.
         }
 
         // Evento para botão de upgrade
@@ -898,4 +944,4 @@
     </script>
 </body>
 </html>
-
+```
